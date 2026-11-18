@@ -1,0 +1,29 @@
+# 2026-11-18: site-down check, from outside Vercel (so it still works when the whole site is down).
+# Every 10 minutes GitHub opens /api/health (must say the database is up) and the sign-in page. Three tries a minute
+# apart, so one slow moment never counts. If all three fail the run fails, and GitHub emails the person who last
+# changed this file's schedule (Chipspra), as long as GitHub > Settings > Notifications > Actions has email on.
+# GitHub may start a scheduled run a few minutes late; that is normal.
+name: Site up
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Health and sign-in page
+        run: |
+          base="https://app.inspectionhubiq.com"
+          for try in 1 2 3; do
+            h=$(curl -s -m 20 "$base/api/health" || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$base/login.php" || true)
+            if echo "$h" | grep -q '"db":true' && [ "$code" = "200" ]; then echo "Up (try $try)"; exit 0; fi
+            echo "Try $try: health=${h:0:200} login=$code"
+            [ "$try" -lt 3 ] && sleep 60
+          done
+          echo "::error::Inspection Hub IQ looks DOWN: health=${h:0:200} sign-in page=$code"
+          exit 1
